@@ -59,7 +59,31 @@ int kem_encrypt(const char* fnOut, const char* fnIn, RSA_KEY* K)
 	 * write to fnOut. */
 
 	/* create random symmetric key SK */
-	
+	size_t rsaLen = rsa_numBytesN(K);
+	unsigned char* x = malloc(rsaLen);
+	randBytes(x, rsaLen);
+	SKE_KEY SK;
+	ske_keyGen(&SK, x, rsaLen);
+
+	/* RSA and SHA256 on the random string used to generate SK */
+	unsigned char* hashX = malloc(HASHLEN);
+	unsigned char* kemBuf = malloc(rsaLen + HASHLEN);
+	rsa_encrypt(kemBuf, x, rsaLen, K);
+	SHA256(x, rsaLen, hashX);
+	free(hashX);
+	/* append H(X) after RSA(X) */
+	memcpy((kemBuf + rsaLen), hashX, HASHLEN);
+
+	FILE* f = fopen(fnOut, "w+");
+	fwrite(kemBuf, 1, (rsaLen + HASHLEN), f);
+	fclose(f);
+
+	/* create SKE ciphertext and append to the KEM */
+
+	ske_encrypt_file(fnOut, fnIn, &SK, NULL, (rsaLen + HASHLEN ));
+
+	free(x);
+	free(kemBuf);
 
 	return 0;
 }
@@ -71,6 +95,36 @@ int kem_decrypt(const char* fnOut, const char* fnIn, RSA_KEY* K)
 	/* step 1: recover the symmetric key */
 	/* step 2: check decapsulation */
 	/* step 3: derive key from ephemKey and decrypt data. */
+
+	size_t rsaLen = rsa_numBytesN(K);
+	/* KEM := RSA(X)|H(X) is first (rsaLen + HASHLEN) bytes of input */
+	FILE* f = fopen(fnIn, "r");
+	unsigned char* kemBuf = malloc(rsaLen + HASHLEN);
+	fread(kemBuf, 1, (rsaLen + HASHLEN), f);
+	fclose(f);
+
+	/* RSA decrypt RSA(X) from the KEM to retrieve x */
+	unsigned char* x = malloc(rsaLen);
+	rsa_decrypt(x, kemBuf, rsaLen, K);
+
+	/* compute H(X) of retrieved X and compare to H(X) from the KEM */
+	unsigned char* hashBuf = malloc(HASHLEN);
+	SHA256(x, rsaLen, hashBuf);
+	for(size_t i = 0; i < HASHLEN; i++){
+		if(hashBuf[i] != kemBuf[i+rsaLen]){
+			return -1;
+		}
+	}
+
+	/* generate symmetric key using retrieved X and decrypt */
+	SKE_KEY SK;
+	ske_keyGen(&SK, x, rsaLen);
+	ske_decrypt_file(fnOut, fnIn, &SK, (rsaLen + HASHLEN));
+
+	free(kemBuf);
+	free(hashBuf);
+	free(x);
+
 	return 0;
 }
 
@@ -143,8 +197,40 @@ int main(int argc, char *argv[]) {
 	 * rsa_shredKey function). */
 	switch (mode) {
 		case ENC:
+			{
+			FILE* f = fopen(fnKey, "r");
+			RSA_KEY K;
+			rsa_readPublic(f, &K);
+			kem_encrypt(fnOut, fnIn, &K);
+			fclose(f);
+			rsa_shredKey(&K);
+			break;
+			}
 		case DEC:
+			{
+			FILE* f = fopen(fnKey, "r");
+			RSA_KEY K;
+			rsa_readPrivate(f, &K);
+			kem_decrypt(fnOut, fnIn, &K);
+			fclose(f);
+			rsa_shredKey(&K);
+			break;
+			}
 		case GEN:
+			{
+			RSA_KEY K;
+			rsa_keyGen(nBits, &K);
+			FILE* fPriv = fopen(fnOut, "w+");
+			rsa_writePrivate(fPriv, &K);
+			/* create path to the file for the public key */
+			strcat(fnOut, ".pub");
+			FILE* fPub = fopen(fnOut, "w+");
+			rsa_writePublic(fPub, &K);
+			fclose(fPriv);
+			fclose(fPub);
+			rsa_shredKey(&K);
+			break;
+			}
 		default:
 			return 1;
 	}
