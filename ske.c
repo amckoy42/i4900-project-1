@@ -95,7 +95,32 @@ size_t ske_encrypt_file(const char* fnout, const char* fnin,
 		SKE_KEY* K, unsigned char* IV, size_t offset_out)
 {
 	/* TODO: write this.  Hint: mmap. */
-	return 0;
+
+	int input = open(fnin, O_RDONLY);
+	int output = open(fnout, O_CREAT | O_RDWR, S_IRWXU);
+	
+	/* use the stat structure to find the size of the file */
+	struct stat sb;
+	if (fstat(input, &sb) == -1) {
+    	perror("stat");
+	}
+	char* fileMap = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, input, 0);
+	
+	size_t inputLen = strlen(fileMap);
+	unsigned char* ct = malloc(ske_getOutputLen(inputLen));
+
+	size_t outputLen = ske_encrypt(ct, (unsigned char*) fileMap, inputLen, K, IV);
+
+	lseek(output, offset_out, SEEK_SET);
+	size_t nWritten = write(output, ct, outputLen);
+
+	munmap(fileMap, sb.st_size);
+	free(ct);
+	close(input);
+	close(output);
+
+
+	return nWritten;
 }
 size_t ske_decrypt(unsigned char* outBuf, unsigned char* inBuf, size_t len,
 		SKE_KEY* K)
@@ -134,5 +159,26 @@ size_t ske_decrypt_file(const char* fnout, const char* fnin,
 		SKE_KEY* K, size_t offset_in)
 {
 	/* TODO: write this. */
-	return 0;
+
+	int input = open(fnin, O_RDONLY);
+	int output = open(fnout, O_CREAT | O_RDWR, S_IRWXU);
+
+	/* use the stat structure to find the size of the file */
+	struct stat sb;
+	if (fstat(input, &sb) == -1) {
+    	perror("stat");
+	}
+	unsigned char* fileMap = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, input, offset_in);
+	size_t inputLen = sb.st_size - offset_in;
+	unsigned char* pt = malloc(inputLen - 16 - HM_LEN);
+	size_t outputLen = ske_decrypt(pt, fileMap, inputLen, K);
+
+	size_t nWritten = write(output, pt, outputLen);
+
+	munmap(fileMap, sb.st_size);
+	free(pt);
+	close(input);
+	close(output);
+
+	return nWritten;
 }
