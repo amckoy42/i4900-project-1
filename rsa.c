@@ -69,6 +69,7 @@ int rsa_keyGen(size_t keyBits, RSA_KEY* K)
 		randBytes(buf, keyBits/2);
 		BYTES2Z(K->q, buf, keyBits/2);
 	} while(ISPRIME(K->q) == 0);
+	free(buf);
 
 	/* n = pq */
 	mpz_mul(K->n, K->p, K->q);
