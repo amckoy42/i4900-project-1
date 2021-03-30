@@ -58,6 +58,7 @@ int kem_encrypt(const char* fnOut, const char* fnIn, RSA_KEY* K)
 	 * encrypt fnIn with SK; concatenate encapsulation and cihpertext;
 	 * write to fnOut. */
 
+	/* create random symmetric key SK */
 	
 
 	return 0;

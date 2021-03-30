@@ -49,7 +49,8 @@ int ske_keyGen(SKE_KEY* K, unsigned char* entropy, size_t entLen)
 	memcpy(K->aesKey, (keyComponents + KLEN_SKE), KLEN_SKE);
 
 	return 0;
-}
+
+}	
 size_t ske_getOutputLen(size_t inputLen)
 {
 	return AES_BLOCK_SIZE + inputLen + HM_LEN;
@@ -61,9 +62,11 @@ size_t ske_encrypt(unsigned char* outBuf, unsigned char* inBuf, size_t len,
 	 * for a hint.  Also, be sure to setup a random IV if none was given.
 	 * You can assume outBuf has enough space for the result. */
 
+	int ivAlloc = 0;
 	if(!IV){
 		IV = malloc(16);
 		randBytes(IV, 16);
+		ivAlloc = 1;
 	}
 	/* IV is the first 16 bytes of the output */
 	memcpy(outBuf, IV, 16);
@@ -85,7 +88,7 @@ size_t ske_encrypt(unsigned char* outBuf, unsigned char* inBuf, size_t len,
 	/* append HMAC(IV|C) to output */
 	memcpy(&outBuf[nWritten + 16], hmacBuf, HM_LEN);
 
-	free(IV);
+	if(ivAlloc == 1) free(IV);
 	free(hmacBuf);
 
 	return (16 + nWritten + HM_LEN); /* TODO: should return number of bytes written, which
@@ -103,12 +106,19 @@ size_t ske_encrypt_file(const char* fnout, const char* fnin,
 	struct stat sb;
 	if (fstat(input, &sb) == -1) {
     	perror("stat");
+		return -1;
 	}
 	char* fileMap = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, input, 0);
 	
 	size_t inputLen = strlen(fileMap);
 	unsigned char* ct = malloc(ske_getOutputLen(inputLen));
 
+	int ivAlloc = 0;
+	if(!IV){
+		IV = malloc(16);
+		randBytes(IV, 16);
+		ivAlloc = 1;
+	}
 	size_t outputLen = ske_encrypt(ct, (unsigned char*) fileMap, inputLen, K, IV);
 
 	lseek(output, offset_out, SEEK_SET);
@@ -116,6 +126,7 @@ size_t ske_encrypt_file(const char* fnout, const char* fnin,
 
 	munmap(fileMap, sb.st_size);
 	free(ct);
+	if(ivAlloc == 1) free(IV);
 	close(input);
 	close(output);
 
@@ -167,6 +178,7 @@ size_t ske_decrypt_file(const char* fnout, const char* fnin,
 	struct stat sb;
 	if (fstat(input, &sb) == -1) {
     	perror("stat");
+		return -1;
 	}
 	unsigned char* fileMap = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, input, offset_in);
 	size_t inputLen = sb.st_size - offset_in;
